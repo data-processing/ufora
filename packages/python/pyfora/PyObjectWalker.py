@@ -98,26 +98,6 @@ class _ClassDefinition(object):
             freeVariableMemberAccessChainsToId
 
 
-class _FileDescription(object):
-    _fileTextCache = {}
-
-    def __init__(self, fileName, fileText):
-        self.fileName = fileName
-        self.fileText = fileText
-
-    @classmethod
-    def cachedFromArgs(cls, fileName, fileText=None):
-        if fileName in cls._fileTextCache:
-            return cls._fileTextCache[fileName]
-
-        if fileText is None:
-            fileText = "".join(PyforaInspect.getlines(fileName))
-
-        tr = cls(fileName, fileText)
-        cls._fileTextCache[fileName] = tr
-        return tr
-
-
 class PyObjectWalker(object):
     """
     `PyObjectWalker`: walk a live python object, registering its pieces with an
@@ -206,8 +186,6 @@ class PyObjectWalker(object):
         elif isinstance(pyObject, Future.Future):
             #it would be better to register the future and do a second pass of walking
             self._walkPyObject(pyObject.result(), objectId)
-        elif isinstance(pyObject, _FileDescription):
-            self._registerFileDescription(objectId, pyObject)
         elif isinstance(pyObject, Exception) and pyObject.__class__ in \
            NamedSingletons.pythonSingletonToName:
             self._registerBuiltinExceptionInstance(objectId, pyObject)
@@ -248,17 +226,6 @@ class PyObjectWalker(object):
         self._objectRegistry.defineRemotePythonObject(
             objectId,
             remotePythonObject._pyforaComputedValueArg()
-            )
-
-    def _registerFileDescription(self, objectId, fileDescription):
-        """
-        `_registerFileDescription`: register a `_FileDescription`
-        (a terminal node in a python object graph) with `self.objectRegistry`
-        """
-        self._objectRegistry.defineFile(
-            objectId=objectId,
-            path=fileDescription.fileName,
-            text=fileDescription.fileText
             )
 
     def _registerBuiltinExceptionInstance(self, objectId, builtinExceptionInstance):
@@ -454,10 +421,8 @@ class PyObjectWalker(object):
                 )
             raise
 
-        sourceFileId = self.walkPyObject(
-            _FileDescription.cachedFromArgs(
-                fileName=pyObject.sourceFileName
-                )
+        sourceFileId = self._idForFile(
+            path=pyObject.sourceFileName,
             )
 
         self._objectRegistry.defineWithBlock(
@@ -467,6 +432,12 @@ class PyObjectWalker(object):
             sourceFileId=sourceFileId,
             lineNumber=lineNumber
             )
+
+    def _idForFile(self, path, text=None):
+        if text is None:
+            text = "".join(PyforaInspect.getlines(path))
+
+        return self._objectRegistry.idForFileAndText(path, text)
 
     def _registerFunction(self, objectId, function):
         """
@@ -569,11 +540,9 @@ class PyObjectWalker(object):
                 )
             raise
 
-        sourceFileId = self.walkPyObject(
-            _FileDescription.cachedFromArgs(
-                fileName=sourceFileName,
-                fileText=sourceFileText
-                )
+        sourceFileId = self._idForFile(
+            path=sourceFileName,
+            text=sourceFileText
             )
 
         return classOrFunction(

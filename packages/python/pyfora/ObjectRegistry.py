@@ -12,13 +12,46 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+import pyfora.LongTermObjectRegistry as LongTermObjectRegistry
+import pyfora.LongTermRegistryEntry as LongTermRegistryEntry
 import pyfora.TypeDescription as TypeDescription
 import base64
 
+
 class ObjectRegistry(object):
-    def __init__(self):
+    def __init__(self, longTermObjectRegistry=None):
         self._nextObjectID = 0
         self.objectIdToObjectDefinition = {}
+
+        # contains objects already defined on the server, which
+        # we assume don't change, like files and class definitions
+        if longTermObjectRegistry is None:
+            longTermObjectRegistry = \
+                LongTermObjectRegistry.LongTermObjectRegistry()
+        self.longTermObjectRegistry = longTermObjectRegistry
+
+        # a dict { objectId: ObjectDefinition } of objects eventually
+        # to be merged into longTermRegistry. gets merged on calls to 
+        # self.onServerUpdated
+        self.longTermRegistryIncrement = {}
+
+        # holds objects which are not in the longTermObjectRegistry
+        # gets purged on calls to self.reset()
+        self.shortTermRegistry = {}
+
+    def onServerUpdated(self):
+        self.longTermObjectRegistry.mergeIncrement(
+            self.longTermRegistryIncrement)
+        self.shortTermRegistry = {}
+
+    def longTermObjectId(self, pyObject):
+        try:
+            if pyObject in self.longTermObjectRegistry:
+                return self.longTermObjectRegistry[pyObject].objectId
+            elif pyObject in self.longTermRegistryIncrement:
+                return self.longTermRegistryIncrement[pyObject].objectId
+        except TypeError:
+            return None
 
     def getDefinition(self, objectId):
         return self.objectIdToObjectDefinition[objectId]
@@ -27,6 +60,23 @@ class ObjectRegistry(object):
         "get a unique id for an object to be inserted later in the registry"
         objectId = self._nextObjectID
         self._nextObjectID += 1
+        return objectId
+
+    def idForFileAndText(self, path, text):
+        longTermObjectIdOrNone = self.longTermObjectId(path)
+        if longTermObjectIdOrNone is not None:
+            return longTermObjectIdOrNone
+
+        objectId = self.allocateObject()
+        self.objectIdToObjectDefinition[objectId] = \
+            TypeDescription.File(path, text)
+
+        self.longTermRegistryIncrement[path] = \
+            LongTermRegistryEntry.LongTermRegistryEntry(
+                contents=self.objectIdToObjectDefinition[objectId],
+                objectId=objectId
+                )
+
         return objectId
 
     def definePrimitive(self, objectId, primitive):
@@ -39,9 +89,6 @@ class ObjectRegistry(object):
 
     def defineList(self, objectId, memberIds):
         self.objectIdToObjectDefinition[objectId] = TypeDescription.List(memberIds)
-
-    def defineFile(self, objectId, text, path):
-        self.objectIdToObjectDefinition[objectId] = TypeDescription.File(path, text)
 
     def defineDict(self, objectId, keyIds, valueIds):
         self.objectIdToObjectDefinition[objectId] = TypeDescription.Dict(keyIds=keyIds,

@@ -190,10 +190,13 @@ class Executor(object):
         future = self._create_future()
 
         def onConverted(result):
+            self.objectRegistry.onServerUpdated()
             if not isinstance(result, Exception):
                 result = RemotePythonObject.DefinedRemotePythonObject(objectId, self)
             self._resolve_future(future, result)
 
+        # basically just forwards to ObjectConverter.convert(
+        #                                self, objectId, objectRegistry, callback)
         self.connection.convertObject(objectId, self.objectRegistry, onConverted)
         return future
 
