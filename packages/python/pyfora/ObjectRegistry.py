@@ -109,13 +109,10 @@ class ObjectRegistry(object):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         """
-        freeVariableMemberAccessChainsToId = \
-            self._processFreeVariableMemberAccessChainResolution(scopeIds)
-
         self.objectIdToObjectDefinition[objectId] = TypeDescription.FunctionDefinition(
             sourceFileId=sourceFileId,
             lineNumber=lineNumber,
-            freeVariableMemberAccessChainsToId=freeVariableMemberAccessChainsToId
+            freeVariableMemberAccessChainsToId=scopeIds
             )
 
     def defineClass(self, objectId, sourceFileId, lineNumber, scopeIds, baseClassIds):
@@ -123,31 +120,17 @@ class ObjectRegistry(object):
         scopeIds: a dict freeVariableMemberAccessChain -> id
         baseClassIds: a list of ids representing (immediate) base classes
         """
-        freeVariableMemberAccessChainsToId = \
-            self._processFreeVariableMemberAccessChainResolution(
-                scopeIds
-                )
-
         self.objectIdToObjectDefinition[objectId] = \
             TypeDescription.ClassDefinition(
                 sourceFileId=sourceFileId,
                 lineNumber=lineNumber,
-                freeVariableMemberAccessChainsToId=freeVariableMemberAccessChainsToId,
+                freeVariableMemberAccessChainsToId=scopeIds,
                 baseClassIds=baseClassIds
                 )
 
     def defineUnconvertible(self, objectId):
         self.objectIdToObjectDefinition[objectId] = \
             TypeDescription.Unconvertible()
-
-    def _processFreeVariableMemberAccessChainResolution(
-            self,
-            freeVariableMemberAccessChainsToId
-            ):
-        return {
-            chainAsString: resolutionId
-            for chainAsString, resolutionId in freeVariableMemberAccessChainsToId.iteritems()
-            }
 
     def defineClassInstance(self, objectId, classId, classMemberNameToClassMemberId):
         self.objectIdToObjectDefinition[objectId] = \
