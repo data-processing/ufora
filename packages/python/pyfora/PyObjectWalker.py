@@ -153,6 +153,11 @@ class PyObjectWalker(object):
         Returns:
             An `int`, the `objectId` of the root python object.
         """
+
+        objectIdOrNone = self._objectRegistry.longTermObjectId(pyObject)
+        if objectIdOrNone is not None:
+            return objectIdOrNone
+
         if id(pyObject) in self._pyObjectIdToObjectId:
             return self._pyObjectIdToObjectId[id(pyObject)]
 
@@ -472,6 +477,7 @@ class PyObjectWalker(object):
         assert all(id(base) in self._pyObjectIdToObjectId for base in pyObject.__bases__)
 
         self._objectRegistry.defineClass(
+            cls=pyObject,
             objectId=objectId,
             sourceFileId=classDescription.sourceFileId,
             lineNumber=classDescription.lineNumber,

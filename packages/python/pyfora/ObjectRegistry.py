@@ -68,14 +68,10 @@ class ObjectRegistry(object):
             return longTermObjectIdOrNone
 
         objectId = self.allocateObject()
-        self.objectIdToObjectDefinition[objectId] = \
-            TypeDescription.File(path, text)
+        objectDefinition = TypeDescription.File(path, text)
+        self.objectIdToObjectDefinition[objectId] = objectDefinition
 
-        self.longTermRegistryIncrement[path] = \
-            LongTermRegistryEntry.LongTermRegistryEntry(
-                contents=self.objectIdToObjectDefinition[objectId],
-                objectId=objectId
-                )
+        self.pushLongTermRegistryIncrementEntry(path, objectId, objectDefinition)
 
         return objectId
 
@@ -115,17 +111,26 @@ class ObjectRegistry(object):
             freeVariableMemberAccessChainsToId=scopeIds
             )
 
-    def defineClass(self, objectId, sourceFileId, lineNumber, scopeIds, baseClassIds):
+    def defineClass(self, cls, objectId, sourceFileId, lineNumber, scopeIds, baseClassIds):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         baseClassIds: a list of ids representing (immediate) base classes
         """
-        self.objectIdToObjectDefinition[objectId] = \
-            TypeDescription.ClassDefinition(
-                sourceFileId=sourceFileId,
-                lineNumber=lineNumber,
-                freeVariableMemberAccessChainsToId=scopeIds,
-                baseClassIds=baseClassIds
+        objectDefinition = TypeDescription.ClassDefinition(
+            sourceFileId=sourceFileId,
+            lineNumber=lineNumber,
+            freeVariableMemberAccessChainsToId=scopeIds,
+            baseClassIds=baseClassIds
+            )
+
+        self.objectIdToObjectDefinition[objectId] = objectDefinition
+        self.pushLongTermRegistryIncrementEntry(cls, objectId, objectDefinition)
+
+    def pushLongTermRegistryIncrementEntry(self, key, objectId, objectDefinition):
+        self.longTermRegistryIncrement[key] = \
+            LongTermRegistryEntry.LongTermRegistryEntry(
+                contents=objectDefinition,
+                objectId=objectId
                 )
 
     def defineUnconvertible(self, objectId):
