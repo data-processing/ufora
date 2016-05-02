@@ -13,7 +13,7 @@
 #   limitations under the License.
 
 import pyfora.LongTermObjectRegistry as LongTermObjectRegistry
-import pyfora.LongTermRegistryEntry as LongTermRegistryEntry
+import pyfora.LongTermObjectRegistryIncrement as LongTermObjectRegistryIncrement
 import pyfora.TypeDescription as TypeDescription
 import base64
 
@@ -21,7 +21,6 @@ import base64
 class ObjectRegistry(object):
     def __init__(self, longTermObjectRegistry=None):
         self._nextObjectID = 0
-        self.objectIdToObjectDefinition = {}
 
         # contains objects already defined on the server, which
         # we assume don't change, like files and class definitions
@@ -33,28 +32,36 @@ class ObjectRegistry(object):
         # a dict { objectId: ObjectDefinition } of objects eventually
         # to be merged into longTermRegistry. gets merged on calls to 
         # self.onServerUpdated
-        self.longTermRegistryIncrement = {}
+        self.longTermObjectRegistryIncrement = \
+            LongTermObjectRegistryIncrement.LongTermObjectRegistryIncrement()
 
         # holds objects which are not in the longTermObjectRegistry
         # gets purged on calls to self.reset()
-        self.shortTermRegistry = {}
+        self.shortTermObjectIdToObjectDefinition = {}
 
     def onServerUpdated(self):
         self.longTermObjectRegistry.mergeIncrement(
-            self.longTermRegistryIncrement)
-        self.shortTermRegistry = {}
+            self.longTermObjectRegistryIncrement)
+        self.shortTermObjectIdToObjectDefinition = {}
 
     def longTermObjectId(self, pyObject):
         try:
-            if pyObject in self.longTermObjectRegistry:
-                return self.longTermObjectRegistry[pyObject].objectId
-            elif pyObject in self.longTermRegistryIncrement:
-                return self.longTermRegistryIncrement[pyObject].objectId
-        except TypeError:
+            if self.longTermObjectRegistry.hasObject(pyObject):
+                return self.longTermObjectRegistry.getObject(pyObject).objectId
+            elif self.longTermObjectRegistryIncrement.hasObject(pyObject):
+                return self.longTermObjectRegistryIncrement.getObject(pyObject).objectId
+        except TypeError: # unhashable type
             return None
 
     def getDefinition(self, objectId):
-        return self.objectIdToObjectDefinition[objectId]
+        if self.longTermObjectRegistry.hasObjectId(objectId):
+            return self.longTermObjectRegistry\
+                       .getObjectDefinitionByObjectId(objectId)
+        elif self.longTermObjectRegistryIncrement.hasObjectId(objectId):
+            return self.longTermObjectRegistryIncrement\
+                       .getObjectDefinitionByObjectId(objectId)
+
+        return self.shortTermObjectIdToObjectDefinition[objectId]
 
     def allocateObject(self):
         "get a unique id for an object to be inserted later in the registry"
@@ -69,49 +76,63 @@ class ObjectRegistry(object):
 
         objectId = self.allocateObject()
         objectDefinition = TypeDescription.File(path, text)
-        self.objectIdToObjectDefinition[objectId] = objectDefinition
 
-        self.pushLongTermRegistryIncrementEntry(path, objectId, objectDefinition)
+        self.longTermObjectRegistryIncrement.pushIncrementEntry(
+            path, objectId, objectDefinition)
 
         return objectId
 
     def definePrimitive(self, objectId, primitive):
         if isinstance(primitive, str):
             primitive = base64.b64encode(primitive)
-        self.objectIdToObjectDefinition[objectId] = primitive
+        self.shortTermObjectIdToObjectDefinition[objectId] = primitive
 
     def defineTuple(self, objectId, memberIds):
-        self.objectIdToObjectDefinition[objectId] = TypeDescription.Tuple(memberIds)
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
+            TypeDescription.Tuple(memberIds)
 
     def defineList(self, objectId, memberIds):
-        self.objectIdToObjectDefinition[objectId] = TypeDescription.List(memberIds)
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
+            TypeDescription.List(memberIds)
 
     def defineDict(self, objectId, keyIds, valueIds):
-        self.objectIdToObjectDefinition[objectId] = TypeDescription.Dict(keyIds=keyIds,
-                                                                         valueIds=valueIds)
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
+            TypeDescription.Dict(keyIds=keyIds,
+                                 valueIds=valueIds)
 
     def defineRemotePythonObject(self, objectId, computedValueArg):
-        self.objectIdToObjectDefinition[objectId] = \
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.RemotePythonObject(computedValueArg)
 
     def defineBuiltinExceptionInstance(self, objectId, typename, argsId):
-        self.objectIdToObjectDefinition[objectId] = \
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.BuiltinExceptionInstance(typename, argsId)
 
     def defineNamedSingleton(self, objectId, singletonName):
-        self.objectIdToObjectDefinition[objectId] = TypeDescription.NamedSingleton(singletonName)
+        self.longTermObjectRegistryIncrement.pushIncrementEntry(
+            singletonName,
+            objectId,
+            TypeDescription.NamedSingleton(singletonName)
+            )
 
     def defineFunction(self, objectId, sourceFileId, lineNumber, scopeIds):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         """
-        self.objectIdToObjectDefinition[objectId] = TypeDescription.FunctionDefinition(
-            sourceFileId=sourceFileId,
-            lineNumber=lineNumber,
-            freeVariableMemberAccessChainsToId=scopeIds
-            )
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
+            TypeDescription.FunctionDefinition(
+                sourceFileId=sourceFileId,
+                lineNumber=lineNumber,
+                freeVariableMemberAccessChainsToId=scopeIds
+                )
 
-    def defineClass(self, cls, objectId, sourceFileId, lineNumber, scopeIds, baseClassIds):
+    def defineClass(self,
+                    cls,
+                    objectId,
+                    sourceFileId,
+                    lineNumber,
+                    scopeIds,
+                    baseClassIds):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         baseClassIds: a list of ids representing (immediate) base classes
@@ -123,29 +144,24 @@ class ObjectRegistry(object):
             baseClassIds=baseClassIds
             )
 
-        self.objectIdToObjectDefinition[objectId] = objectDefinition
-        self.pushLongTermRegistryIncrementEntry(cls, objectId, objectDefinition)
-
-    def pushLongTermRegistryIncrementEntry(self, key, objectId, objectDefinition):
-        self.longTermRegistryIncrement[key] = \
-            LongTermRegistryEntry.LongTermRegistryEntry(
-                contents=objectDefinition,
-                objectId=objectId
-                )
+        self.shortTermObjectIdToObjectDefinition[objectId] = objectDefinition
+        self.longTermObjectRegistryIncrement.pushIncrementEntry(
+            cls, objectId, objectDefinition
+            )
 
     def defineUnconvertible(self, objectId):
-        self.objectIdToObjectDefinition[objectId] = \
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.Unconvertible()
 
     def defineClassInstance(self, objectId, classId, classMemberNameToClassMemberId):
-        self.objectIdToObjectDefinition[objectId] = \
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.ClassInstanceDescription(
                 classId=classId,
                 classMemberNameToClassMemberId=classMemberNameToClassMemberId
                 )
 
     def defineInstanceMethod(self, objectId, instanceId, methodName):
-        self.objectIdToObjectDefinition[objectId] = \
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.InstanceMethod(
                 instanceId=instanceId,
                 methodName=methodName
@@ -156,7 +172,7 @@ class ObjectRegistry(object):
                         freeVariableMemberAccessChainsToId,
                         sourceFileId,
                         lineNumber):
-        self.objectIdToObjectDefinition[objectId] = \
+        self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.WithBlockDescription(
                 freeVariableMemberAccessChainsToId,
                 sourceFileId,
@@ -164,8 +180,13 @@ class ObjectRegistry(object):
                 )
 
     def computeDependencyGraph(self, objectId):
+        print "computing dependency graph for %s" % objectId
+
         graphOfIds = dict()
         self._populateGraphOfIds(graphOfIds, objectId)
+
+        print "graph =", graphOfIds
+
         return graphOfIds
 
     def _populateGraphOfIds(self, graphOfIds, objectId):
@@ -177,7 +198,7 @@ class ObjectRegistry(object):
                 self._populateGraphOfIds(graphOfIds, objectId)
 
     def _computeDependentIds(self, objectId):
-        objectDefinition = self.objectIdToObjectDefinition[objectId]
+        objectDefinition = self.getDefinition(objectId)
 
         if TypeDescription.isPrimitive(objectDefinition) or \
                 isinstance(objectDefinition,

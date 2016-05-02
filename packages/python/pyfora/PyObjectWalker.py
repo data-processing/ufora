@@ -132,6 +132,8 @@ class PyObjectWalker(object):
         self._pyObjectIdToObjectId = {}
         self._objectRegistry = objectRegistry
 
+        print "initializing a PyObjectWalker\n"
+
     def _allocateId(self, pyObject):
         objectId = self._objectRegistry.allocateObject()
         self._pyObjectIdToObjectId[id(pyObject)] = objectId
@@ -156,6 +158,7 @@ class PyObjectWalker(object):
 
         objectIdOrNone = self._objectRegistry.longTermObjectId(pyObject)
         if objectIdOrNone is not None:
+            print "pyObject %s has non-none objectId: %s" % (pyObject, objectIdOrNone)
             return objectIdOrNone
 
         if id(pyObject) in self._pyObjectIdToObjectId:
@@ -171,6 +174,11 @@ class PyObjectWalker(object):
             pyObject = pureInstance
 
         objectId = self._allocateId(pyObject)
+
+        print "%s -> %s" % (objectId, pyObject)
+        
+        if objectId == 4:
+            print "allocated id %s for %s (dict = %s)" % (objectId, pyObject, pyObject.__dict__)
 
         if pyObject is pyfora.connect:
             self._registerUnconvertible(objectId)
@@ -219,6 +227,8 @@ class PyObjectWalker(object):
         elif isinstance(pyObject, instancemethod):
             self._registerInstanceMethod(objectId, pyObject)
         elif isClassInstance(pyObject):
+            if objectId == 4:
+                print "objectId 4 is a class instance: %s" % pyObject
             self._registerClassInstance(objectId, pyObject)
         else:
             assert False, "don't know what to do with %s" % pyObject

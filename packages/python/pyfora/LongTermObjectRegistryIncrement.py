@@ -13,18 +13,21 @@
 #   limitations under the License.
 
 
-class LongTermObjectRegistry(object):
+import pyfora.LongTermRegistryEntry as LongTermRegistryEntry
+
+
+class LongTermObjectRegistryIncrement(object):
     def __init__(self):
         self.registeredObjectToEntry = {}
         self.objectIdToObjectDefinition = {}
 
-    def mergeIncrement(self, increment):
-        self.registeredObjectToEntry.update(
-            increment.registeredObjectToEntry
-            )
-        self.objectIdToObjectDefinition.update(
-            increment.objectIdToObjectDefinition
-            )
+    def pushIncrementEntry(self, key, objectId, objectDefinition):
+        self.registeredObjectToEntry[key] = \
+            LongTermRegistryEntry.LongTermRegistryEntry(
+                contents=objectDefinition,
+                objectId=objectId
+                )
+        self.objectIdToObjectDefinition[objectId] = objectDefinition
 
     def hasObjectId(self, objectId):
         return objectId in self.objectIdToObjectDefinition
