@@ -132,8 +132,6 @@ class PyObjectWalker(object):
         self._pyObjectIdToObjectId = {}
         self._objectRegistry = objectRegistry
 
-        print "initializing a PyObjectWalker\n"
-
     def _allocateId(self, pyObject):
         objectId = self._objectRegistry.allocateObject()
         self._pyObjectIdToObjectId[id(pyObject)] = objectId
@@ -156,14 +154,16 @@ class PyObjectWalker(object):
             An `int`, the `objectId` of the root python object.
         """
 
+        originalPyObject = pyObject
+
         objectIdOrNone = self._objectRegistry.longTermObjectId(pyObject)
         if objectIdOrNone is not None:
-            print "pyObject %s has non-none objectId: %s" % (pyObject, objectIdOrNone)
             return objectIdOrNone
 
         if id(pyObject) in self._pyObjectIdToObjectId:
             return self._pyObjectIdToObjectId[id(pyObject)]
 
+        isLongTerm = False
         if id(pyObject) in self._convertedObjectCache:
             pyObject = self._convertedObjectCache[id(pyObject)]
         elif self._purePythonClassMapping.canMap(pyObject):
@@ -171,14 +171,13 @@ class PyObjectWalker(object):
                 pyObject
                 )
             self._convertedObjectCache[id(pyObject)] = pureInstance
+
+            if self._purePythonClassMapping.isMappableInstance(pyObject):
+                isLongTerm = True
+
             pyObject = pureInstance
 
         objectId = self._allocateId(pyObject)
-
-        print "%s -> %s" % (objectId, pyObject)
-        
-        if objectId == 4:
-            print "allocated id %s for %s (dict = %s)" % (objectId, pyObject, pyObject.__dict__)
 
         if pyObject is pyfora.connect:
             self._registerUnconvertible(objectId)
@@ -190,6 +189,9 @@ class PyObjectWalker(object):
             self._registerUnconvertible(objectId)
         except PyforaInspectError:
             self._registerUnconvertible(objectId)
+
+        if isLongTerm:
+            self._objectRegistry.pushLongtermObject(originalPyObject, objectId)
 
         return objectId
 
@@ -206,7 +208,8 @@ class PyObjectWalker(object):
            pyObject in NamedSingletons.pythonSingletonToName:
             self._registerNamedSingleton(
                 objectId,
-                NamedSingletons.pythonSingletonToName[pyObject]
+                NamedSingletons.pythonSingletonToName[pyObject],
+                pyObject
                 )
         elif isinstance(pyObject, PyforaWithBlock.PyforaWithBlock):
             self._registerWithBlock(objectId, pyObject)
@@ -227,8 +230,6 @@ class PyObjectWalker(object):
         elif isinstance(pyObject, instancemethod):
             self._registerInstanceMethod(objectId, pyObject)
         elif isClassInstance(pyObject):
-            if objectId == 4:
-                print "objectId 4 is a class instance: %s" % pyObject
             self._registerClassInstance(objectId, pyObject)
         else:
             assert False, "don't know what to do with %s" % pyObject
@@ -260,12 +261,12 @@ class PyObjectWalker(object):
             argsId
             )
 
-    def _registerNamedSingleton(self, objectId, singletonName):
+    def _registerNamedSingleton(self, objectId, singletonName, pyObject):
         """
         `_registerNamedSingleton`: register a `NamedSingleton`
         (a terminal node in a python object graph) with `self.objectRegistry`
         """
-        self._objectRegistry.defineNamedSingleton(objectId, singletonName)
+        self._objectRegistry.defineNamedSingleton(objectId, singletonName, pyObject)
 
     def _registerTuple(self, objectId, tuple_):
         """
@@ -467,6 +468,7 @@ class PyObjectWalker(object):
             )
 
         self._objectRegistry.defineFunction(
+            function,
             objectId=objectId,
             sourceFileId=functionDescription.sourceFileId,
             lineNumber=functionDescription.lineNumber,

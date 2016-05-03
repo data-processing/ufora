@@ -82,10 +82,25 @@ class ObjectRegistry(object):
 
         return objectId
 
+    def pushLongtermObject(self, pyObject, objectId):
+        self.longTermObjectRegistryIncrement.pushIncrementEntry(
+            pyObject,
+            objectId,
+            self.getDefinition(objectId)
+            )
+
     def definePrimitive(self, objectId, primitive):
         if isinstance(primitive, str):
             primitive = base64.b64encode(primitive)
-        self.shortTermObjectIdToObjectDefinition[objectId] = primitive
+
+        if isinstance(primitive, (type(None), bool)):
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                primitive,
+                objectId,
+                primitive
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = primitive
 
     def defineTuple(self, objectId, memberIds):
         self.shortTermObjectIdToObjectDefinition[objectId] = \
@@ -108,23 +123,26 @@ class ObjectRegistry(object):
         self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.BuiltinExceptionInstance(typename, argsId)
 
-    def defineNamedSingleton(self, objectId, singletonName):
+    def defineNamedSingleton(self, objectId, singletonName, pyObject):
         self.longTermObjectRegistryIncrement.pushIncrementEntry(
-            singletonName,
+            pyObject,
             objectId,
             TypeDescription.NamedSingleton(singletonName)
             )
 
-    def defineFunction(self, objectId, sourceFileId, lineNumber, scopeIds):
+    def defineFunction(self, function, objectId, sourceFileId, lineNumber, scopeIds):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         """
-        self.shortTermObjectIdToObjectDefinition[objectId] = \
+        self.longTermObjectRegistryIncrement.pushIncrementEntry(
+            function,
+            objectId,
             TypeDescription.FunctionDefinition(
                 sourceFileId=sourceFileId,
                 lineNumber=lineNumber,
                 freeVariableMemberAccessChainsToId=scopeIds
                 )
+            )
 
     def defineClass(self,
                     cls,
@@ -153,7 +171,10 @@ class ObjectRegistry(object):
         self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.Unconvertible()
 
-    def defineClassInstance(self, objectId, classId, classMemberNameToClassMemberId):
+    def defineClassInstance(self,
+                            objectId,
+                            classId,
+                            classMemberNameToClassMemberId):
         self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.ClassInstanceDescription(
                 classId=classId,
@@ -180,13 +201,8 @@ class ObjectRegistry(object):
                 )
 
     def computeDependencyGraph(self, objectId):
-        print "computing dependency graph for %s" % objectId
-
         graphOfIds = dict()
         self._populateGraphOfIds(graphOfIds, objectId)
-
-        print "graph =", graphOfIds
-
         return graphOfIds
 
     def _populateGraphOfIds(self, graphOfIds, objectId):
