@@ -159,11 +159,6 @@ class PyObjectWalker(object):
 
         objectIdOrNone = self._objectRegistry.longTermObjectId(pyObject)
         if objectIdOrNone is not None:
-            print "got an objectId %s for pyObject %s" % (objectIdOrNone, pyObject)
-            if objectIdOrNone == 32:
-                print self._objectRegistry.getDefinition(32)
-                print "id(pyObject) = ", id(pyObject)
-                print
             return objectIdOrNone
 
         if id(pyObject) in self._pyObjectIdToObjectId:
@@ -183,6 +178,9 @@ class PyObjectWalker(object):
             pyObject = pureInstance
 
         objectId = self._allocateId(pyObject)
+
+        print "%s -> %s (id=%s, id(walking)=%s)" % (objectId, originalPyObject, id(originalPyObject), id(pyObject))
+        print "\t%s" % self._pyObjectIdToObjectId
 
         if pyObject is pyfora.connect:
             self._registerUnconvertible(objectId)
@@ -244,6 +242,19 @@ class PyObjectWalker(object):
             self._registerClassInstance(objectId, pyObject, isLongTerm)
         else:
             assert False, "don't know what to do with %s" % pyObject
+
+    def _objectIdFor(self, pyObject):
+        idOrNone = self._objectRegistry.longTermObjectId(pyObject)
+
+        if idOrNone is not None:
+            return idOrNone
+
+        if id(pyObject) in self._pyObjectIdToObjectId:
+            return self._pyObjectIdToObjectId[id(pyObject)]
+
+        raise UserWarning(
+            "couldn't find an object id for %s" % pyObject
+            )
 
     def _isLongTermFunction(self, function):
         if hasattr(function, "__module__"):
@@ -359,8 +370,8 @@ class PyObjectWalker(object):
         """
         keyIds, valueIds = [], []
         for k, v in dict_.iteritems():
-            keyIds.append(self.walkPyObject(k, isLongTerm=isLongTerm))
-            valueIds.append(self.walkPyObject(v, isLongTerm=isLongTerm))
+            keyIds.append(self.walkPyObject(k))
+            valueIds.append(self.walkPyObject(v))
 
         self._objectRegistry.defineDict(
             objectId=objectId,
@@ -379,7 +390,7 @@ class PyObjectWalker(object):
         instance = pyObject.__self__
         methodName = pyObject.__name__
 
-        instanceId = self.walkPyObject(instance)
+        instanceId = self.walkPyObject(instance, isLongTerm=isLongTerm)
 
         self._objectRegistry.defineInstanceMethod(
             pyObject,
@@ -405,7 +416,9 @@ class PyObjectWalker(object):
             else PyAstUtil.collectDataMembersSetInInit(classObject)
         classMemberNameToClassMemberId = {}
         for dataMemberName in dataMemberNames:
-            memberId = self.walkPyObject(getattr(classInstance, dataMemberName))
+            memberId = self.walkPyObject(
+                getattr(classInstance, dataMemberName),
+                isLongTerm=isLongTerm)
             classMemberNameToClassMemberId[dataMemberName] = memberId
 
         self._objectRegistry.defineClassInstance(
@@ -536,7 +549,6 @@ class PyObjectWalker(object):
             classOrFunction=_ClassDefinition,
             isLongTerm=isLongTerm
             )
-        assert all(id(base) in self._pyObjectIdToObjectId for base in pyObject.__bases__)
 
         self._objectRegistry.defineClass(
             cls=pyObject,
@@ -544,7 +556,7 @@ class PyObjectWalker(object):
             sourceFileId=classDescription.sourceFileId,
             lineNumber=classDescription.lineNumber,
             scopeIds=classDescription.freeVariableMemberAccessChainsToId,
-            baseClassIds=[self._pyObjectIdToObjectId[id(base)] for base in pyObject.__bases__],
+            baseClassIds=[self._objectIdFor(base) for base in pyObject.__bases__],
             isLongTerm=isLongTerm
             )
 

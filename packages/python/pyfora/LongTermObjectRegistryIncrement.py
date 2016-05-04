@@ -22,7 +22,7 @@ class LongTermObjectRegistryIncrement(object):
         self.objectIdToObjectDefinition = {}
 
     def pushIncrementEntry(self, key, objectId, objectDefinition):
-        self.registeredObjectToEntry[key] = \
+        self.registeredObjectToEntry[(key, type(key))] = \
             LongTermRegistryEntry.LongTermRegistryEntry(
                 contents=objectDefinition,
                 objectId=objectId
@@ -36,7 +36,7 @@ class LongTermObjectRegistryIncrement(object):
         return self.objectIdToObjectDefinition[objectId]
 
     def hasObject(self, pyObject):
-        return pyObject in self.registeredObjectToEntry
+        return (pyObject, type(pyObject)) in self.registeredObjectToEntry
 
     def getObject(self, pyObject):
-        return self.registeredObjectToEntry[pyObject]
+        return self.registeredObjectToEntry[(pyObject, type(pyObject))]
