@@ -28,6 +28,7 @@ import logging
 import traceback
 import __builtin__
 import ast
+import sys
 
 
 class UnresolvedFreeVariableException(Exception):
@@ -138,7 +139,7 @@ class PyObjectWalker(object):
 
         return objectId
 
-    def walkPyObject(self, pyObject):
+    def walkPyObject(self, pyObject, isLongTerm=False):
         """
         `walkPyObject`: recursively traverse a live python object,
         registering its "pieces" with an `ObjectRegistry`
@@ -158,12 +159,16 @@ class PyObjectWalker(object):
 
         objectIdOrNone = self._objectRegistry.longTermObjectId(pyObject)
         if objectIdOrNone is not None:
+            print "got an objectId %s for pyObject %s" % (objectIdOrNone, pyObject)
+            if objectIdOrNone == 32:
+                print self._objectRegistry.getDefinition(32)
+                print "id(pyObject) = ", id(pyObject)
+                print
             return objectIdOrNone
 
         if id(pyObject) in self._pyObjectIdToObjectId:
             return self._pyObjectIdToObjectId[id(pyObject)]
 
-        isLongTerm = False
         if id(pyObject) in self._convertedObjectCache:
             pyObject = self._convertedObjectCache[id(pyObject)]
         elif self._purePythonClassMapping.canMap(pyObject):
@@ -184,23 +189,20 @@ class PyObjectWalker(object):
             return objectId
 
         try:
-            self._walkPyObject(pyObject, objectId)
+            self._walkPyObject(pyObject, objectId, isLongTerm=isLongTerm)
         except Exceptions.CantGetSourceTextError:
             self._registerUnconvertible(objectId)
         except PyforaInspectError:
             self._registerUnconvertible(objectId)
 
-        if isLongTerm:
-            self._objectRegistry.pushLongtermObject(originalPyObject, objectId)
-
         return objectId
 
-    def _walkPyObject(self, pyObject, objectId):
+    def _walkPyObject(self, pyObject, objectId, isLongTerm=False):
         if isinstance(pyObject, RemotePythonObject.RemotePythonObject):
-            self._registerRemotePythonObject(objectId, pyObject)
+            self._registerRemotePythonObject(objectId, pyObject, isLongTerm=isLongTerm)
         elif isinstance(pyObject, Future.Future):
             #it would be better to register the future and do a second pass of walking
-            self._walkPyObject(pyObject.result(), objectId)
+            self._walkPyObject(pyObject.result(), objectId, isLongTerm=isLongTerm)
         elif isinstance(pyObject, Exception) and pyObject.__class__ in \
            NamedSingletons.pythonSingletonToName:
             self._registerBuiltinExceptionInstance(objectId, pyObject)
@@ -212,36 +214,73 @@ class PyObjectWalker(object):
                 pyObject
                 )
         elif isinstance(pyObject, PyforaWithBlock.PyforaWithBlock):
+            assert not isLongTerm, "withBlocks shouldn't be long term"
             self._registerWithBlock(objectId, pyObject)
         elif isinstance(pyObject, _Unconvertible):
             self._registerUnconvertible(objectId)
         elif isinstance(pyObject, tuple):
-            self._registerTuple(objectId, pyObject)
+            self._registerTuple(objectId, pyObject, isLongTerm=isLongTerm)
         elif isinstance(pyObject, list):
+            assert not isLongTerm, \
+                "lists cannot be long term objects, as they are unhashable"
             self._registerList(objectId, pyObject)
         elif isinstance(pyObject, dict):
+            assert not isLongTerm, \
+                "dicts cannot be long term objects, as they are unhashable"
             self._registerDict(objectId, pyObject)
         elif isPrimitive(pyObject):
-            self._registerPrimitive(objectId, pyObject)
+            self._registerPrimitive(objectId, pyObject, isLongTerm=isLongTerm)
         elif PyforaInspect.isfunction(pyObject):
-            self._registerFunction(objectId, pyObject)
+            if not isLongTerm:
+                isLongTerm = self._isLongTermFunction(pyObject)
+            self._registerFunction(objectId, pyObject, isLongTerm=isLongTerm)
         elif PyforaInspect.isclass(pyObject):
-            self._registerClass(objectId, pyObject)
+            if not isLongTerm:
+                isLongTerm = self._isLongTermClass(pyObject)
+            self._registerClass(objectId, pyObject, isLongTerm=isLongTerm)
         elif isinstance(pyObject, instancemethod):
-            self._registerInstanceMethod(objectId, pyObject)
+            self._registerInstanceMethod(objectId, pyObject, isLongTerm=isLongTerm)
         elif isClassInstance(pyObject):
-            self._registerClassInstance(objectId, pyObject)
+            self._registerClassInstance(objectId, pyObject, isLongTerm)
         else:
             assert False, "don't know what to do with %s" % pyObject
 
-    def _registerRemotePythonObject(self, objectId, remotePythonObject):
+    def _isLongTermFunction(self, function):
+        if hasattr(function, "__module__"):
+            moduleName = function.__module__
+            if moduleName == "__main__":
+                return False
+            module = sys.modules[moduleName]
+
+            return len(PyforaInspect.getmembers(
+                module,
+                lambda _: (PyforaInspect.ismethod(_) or PyforaInspect.isfunction(_)) \
+                and _.__name__ == function.__name__
+                )) > 0
+
+        return False
+
+    def _isLongTermClass(self, cls):
+        if hasattr(cls, "__module__"):
+            moduleName = cls.__module__
+            if moduleName == "__main__":
+                return False
+            module = sys.modules[moduleName]
+
+            return len(PyforaInspect.getmembers(
+                module,
+                lambda _: PyforaInspect.isclass(_) and _.__name__ == cls.__name__
+                )) > 0
+
+    def _registerRemotePythonObject(self, objectId, remotePythonObject, isLongTerm):
         """
         `_registerRemotePythonObject`: register a remotePythonObject
         (a terminal node in a python object graph) with `self.objectRegistry`
         """
         self._objectRegistry.defineRemotePythonObject(
             objectId,
-            remotePythonObject._pyforaComputedValueArg()
+            remotePythonObject._pyforaComputedValueArg(),
+            isLongTerm=isLongTerm
             )
 
     def _registerBuiltinExceptionInstance(self, objectId, builtinExceptionInstance):
@@ -255,6 +294,7 @@ class PyObjectWalker(object):
 
         self._objectRegistry.defineBuiltinExceptionInstance(
             objectId,
+            builtinExceptionInstance,
             NamedSingletons.pythonSingletonToName[
                 builtinExceptionInstance.__class__
                 ],
@@ -268,18 +308,20 @@ class PyObjectWalker(object):
         """
         self._objectRegistry.defineNamedSingleton(objectId, singletonName, pyObject)
 
-    def _registerTuple(self, objectId, tuple_):
+    def _registerTuple(self, objectId, tuple_, isLongTerm):
         """
         `_registerTuple`: register a `tuple` instance
         with `self.objectRegistry`.
 
         Recursively call `walkPyObject` on the values in the tuple.
         """
-        memberIds = [self.walkPyObject(val) for val in tuple_]
+        memberIds = [self.walkPyObject(val, isLongTerm=isLongTerm) for val in tuple_]
 
         self._objectRegistry.defineTuple(
+            tuple_,
             objectId=objectId,
-            memberIds=memberIds
+            memberIds=memberIds,
+            isLongTerm=isLongTerm
             )
 
     def _registerList(self, objectId, list_):
@@ -297,14 +339,15 @@ class PyObjectWalker(object):
                 memberIds=memberIds
                 )
 
-    def _registerPrimitive(self, objectId, primitive):
+    def _registerPrimitive(self, objectId, primitive, isLongTerm=False):
         """
         `_registerPrimitive`: register a primitive (defined by `isPrimitive`)
         (a terminal node in a python object graph) with `self.objectRegistry`
         """
         self._objectRegistry.definePrimitive(
             objectId,
-            primitive
+            primitive,
+            isLongTerm
             )
 
     def _registerDict(self, objectId, dict_):
@@ -316,8 +359,8 @@ class PyObjectWalker(object):
         """
         keyIds, valueIds = [], []
         for k, v in dict_.iteritems():
-            keyIds.append(self.walkPyObject(k))
-            valueIds.append(self.walkPyObject(v))
+            keyIds.append(self.walkPyObject(k, isLongTerm=isLongTerm))
+            valueIds.append(self.walkPyObject(v, isLongTerm=isLongTerm))
 
         self._objectRegistry.defineDict(
             objectId=objectId,
@@ -325,7 +368,7 @@ class PyObjectWalker(object):
             valueIds=valueIds
             )
 
-    def _registerInstanceMethod(self, objectId, pyObject):
+    def _registerInstanceMethod(self, objectId, pyObject, isLongTerm):
         """
         `_registerInstanceMethod`: register an `instancemethod` instance
         with `self.objectRegistry`.
@@ -339,13 +382,15 @@ class PyObjectWalker(object):
         instanceId = self.walkPyObject(instance)
 
         self._objectRegistry.defineInstanceMethod(
+            pyObject,
             objectId=objectId,
             instanceId=instanceId,
-            methodName=methodName
+            methodName=methodName,
+            isLongTerm=isLongTerm
             )
 
 
-    def _registerClassInstance(self, objectId, classInstance):
+    def _registerClassInstance(self, objectId, classInstance, isLongTerm):
         """
         `_registerClassInstance`: register a `class` instance
         with `self.objectRegistry`.
@@ -354,7 +399,7 @@ class PyObjectWalker(object):
         and on the data members of the instance.
         """
         classObject = classInstance.__class__
-        classId = self.walkPyObject(classObject)
+        classId = self.walkPyObject(classObject, isLongTerm=isLongTerm)
 
         dataMemberNames = classInstance.__dict__.keys() if hasattr(classInstance, '__dict__') \
             else PyAstUtil.collectDataMembersSetInInit(classObject)
@@ -364,9 +409,11 @@ class PyObjectWalker(object):
             classMemberNameToClassMemberId[dataMemberName] = memberId
 
         self._objectRegistry.defineClassInstance(
+            classInstance,
             objectId=objectId,
             classId=classId,
-            classMemberNameToClassMemberId=classMemberNameToClassMemberId
+            classMemberNameToClassMemberId=classMemberNameToClassMemberId,
+            isLongTerm=isLongTerm
             )
 
     def _registerWithBlock(self, objectId, pyObject):
@@ -455,7 +502,7 @@ class PyObjectWalker(object):
 
         return self._objectRegistry.idForFileAndText(path, text)
 
-    def _registerFunction(self, objectId, function):
+    def _registerFunction(self, objectId, function, isLongTerm):
         """
         `_registerFunction`: register a python function with `self.objectRegistry.
 
@@ -464,7 +511,8 @@ class PyObjectWalker(object):
         """
         functionDescription = self._classOrFunctionDefinition(
             function,
-            classOrFunction=_FunctionDefinition
+            classOrFunction=_FunctionDefinition,
+            isLongTerm=isLongTerm
             )
 
         self._objectRegistry.defineFunction(
@@ -472,10 +520,11 @@ class PyObjectWalker(object):
             objectId=objectId,
             sourceFileId=functionDescription.sourceFileId,
             lineNumber=functionDescription.lineNumber,
-            scopeIds=functionDescription.freeVariableMemberAccessChainsToId
+            scopeIds=functionDescription.freeVariableMemberAccessChainsToId,
+            isLongTerm=isLongTerm
             )
 
-    def _registerClass(self, objectId, pyObject):
+    def _registerClass(self, objectId, pyObject, isLongTerm):
         """
         `_registerClass`: register a python class with `self.objectRegistry.
 
@@ -484,7 +533,8 @@ class PyObjectWalker(object):
         """
         classDescription = self._classOrFunctionDefinition(
             pyObject,
-            classOrFunction=_ClassDefinition
+            classOrFunction=_ClassDefinition,
+            isLongTerm=isLongTerm
             )
         assert all(id(base) in self._pyObjectIdToObjectId for base in pyObject.__bases__)
 
@@ -494,13 +544,14 @@ class PyObjectWalker(object):
             sourceFileId=classDescription.sourceFileId,
             lineNumber=classDescription.lineNumber,
             scopeIds=classDescription.freeVariableMemberAccessChainsToId,
-            baseClassIds=[self._pyObjectIdToObjectId[id(base)] for base in pyObject.__bases__]
+            baseClassIds=[self._pyObjectIdToObjectId[id(base)] for base in pyObject.__bases__],
+            isLongTerm=isLongTerm
             )
 
     def _registerUnconvertible(self, objectId):
         self._objectRegistry.defineUnconvertible(objectId)
 
-    def _classOrFunctionDefinition(self, pyObject, classOrFunction):
+    def _classOrFunctionDefinition(self, pyObject, classOrFunction, isLongTerm):
         """
         `_classOrFunctionDefinition: create a `_FunctionDefinition` or
         `_ClassDefinition` out of a python class or function, recursively visiting
@@ -548,7 +599,7 @@ class PyObjectWalker(object):
             for chain, (resolution, location) in \
                 freeVariableMemberAccessChainResolutions.iteritems():
                 processedFreeVariableMemberAccessChainResolutions['.'.join(chain)] = \
-                    self.walkPyObject(resolution)
+                    self.walkPyObject(resolution, isLongTerm=isLongTerm)
         except UnresolvedFreeVariableExceptionWithTrace as e:
             e.addToTrace(
                 Exceptions.makeTraceElement(

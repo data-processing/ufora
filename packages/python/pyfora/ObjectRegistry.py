@@ -89,11 +89,11 @@ class ObjectRegistry(object):
             self.getDefinition(objectId)
             )
 
-    def definePrimitive(self, objectId, primitive):
+    def definePrimitive(self, objectId, primitive, isLongTerm):
         if isinstance(primitive, str):
             primitive = base64.b64encode(primitive)
 
-        if isinstance(primitive, (type(None), bool)):
+        if isLongTerm or isinstance(primitive, (type(None), bool)):
             self.longTermObjectRegistryIncrement.pushIncrementEntry(
                 primitive,
                 objectId,
@@ -102,9 +102,17 @@ class ObjectRegistry(object):
         else:
             self.shortTermObjectIdToObjectDefinition[objectId] = primitive
 
-    def defineTuple(self, objectId, memberIds):
-        self.shortTermObjectIdToObjectDefinition[objectId] = \
-            TypeDescription.Tuple(memberIds)
+    def defineTuple(self, pyObject, objectId, memberIds, isLongTerm):
+        objectDefinition = TypeDescription.Tuple(memberIds)
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                pyObject,
+                objectId,
+                objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = \
+                objectDefinition
 
     def defineList(self, objectId, memberIds):
         self.shortTermObjectIdToObjectDefinition[objectId] = \
@@ -115,13 +123,27 @@ class ObjectRegistry(object):
             TypeDescription.Dict(keyIds=keyIds,
                                  valueIds=valueIds)
 
-    def defineRemotePythonObject(self, objectId, computedValueArg):
-        self.shortTermObjectIdToObjectDefinition[objectId] = \
-            TypeDescription.RemotePythonObject(computedValueArg)
+    def defineRemotePythonObject(self, objectId, computedValueArg, isLongTerm=False):
+        objectDefinition = TypeDescription.RemotePythonObject(computedValueArg)
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                computedValueArg,
+                objectId,
+                objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = objectDefinition
 
-    def defineBuiltinExceptionInstance(self, objectId, typename, argsId):
-        self.shortTermObjectIdToObjectDefinition[objectId] = \
+    def defineBuiltinExceptionInstance(self,
+                                       objectId,
+                                       builtinExceptionInstance,
+                                       typename,
+                                       argsId):
+        self.longTermObjectRegistryIncrement.pushIncrementEntry(
+            builtinExceptionInstance,
+            objectId,
             TypeDescription.BuiltinExceptionInstance(typename, argsId)
+            )
 
     def defineNamedSingleton(self, objectId, singletonName, pyObject):
         self.longTermObjectRegistryIncrement.pushIncrementEntry(
@@ -130,19 +152,31 @@ class ObjectRegistry(object):
             TypeDescription.NamedSingleton(singletonName)
             )
 
-    def defineFunction(self, function, objectId, sourceFileId, lineNumber, scopeIds):
+    def defineFunction(self,
+                       function,
+                       objectId,
+                       sourceFileId,
+                       lineNumber,
+                       scopeIds,
+                       isLongTerm):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         """
-        self.longTermObjectRegistryIncrement.pushIncrementEntry(
-            function,
-            objectId,
-            TypeDescription.FunctionDefinition(
-                sourceFileId=sourceFileId,
-                lineNumber=lineNumber,
-                freeVariableMemberAccessChainsToId=scopeIds
-                )
+        objectDefinition = TypeDescription.FunctionDefinition(
+            sourceFileId=sourceFileId,
+            lineNumber=lineNumber,
+            freeVariableMemberAccessChainsToId=scopeIds
             )
+
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                function,
+                objectId,
+                objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = \
+                objectDefinition
 
     def defineClass(self,
                     cls,
@@ -150,7 +184,8 @@ class ObjectRegistry(object):
                     sourceFileId,
                     lineNumber,
                     scopeIds,
-                    baseClassIds):
+                    baseClassIds,
+                    isLongTerm):
         """
         scopeIds: a dict freeVariableMemberAccessChain -> id
         baseClassIds: a list of ids representing (immediate) base classes
@@ -162,31 +197,59 @@ class ObjectRegistry(object):
             baseClassIds=baseClassIds
             )
 
-        self.shortTermObjectIdToObjectDefinition[objectId] = objectDefinition
-        self.longTermObjectRegistryIncrement.pushIncrementEntry(
-            cls, objectId, objectDefinition
-            )
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                cls, objectId, objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = objectDefinition
+
 
     def defineUnconvertible(self, objectId):
         self.shortTermObjectIdToObjectDefinition[objectId] = \
             TypeDescription.Unconvertible()
 
     def defineClassInstance(self,
+                            pyObject,
                             objectId,
                             classId,
-                            classMemberNameToClassMemberId):
-        self.shortTermObjectIdToObjectDefinition[objectId] = \
-            TypeDescription.ClassInstanceDescription(
-                classId=classId,
-                classMemberNameToClassMemberId=classMemberNameToClassMemberId
-                )
+                            classMemberNameToClassMemberId,
+                            isLongTerm):
+        objectDefinition = TypeDescription.ClassInstanceDescription(
+            classId=classId,
+            classMemberNameToClassMemberId=classMemberNameToClassMemberId
+            )
 
-    def defineInstanceMethod(self, objectId, instanceId, methodName):
-        self.shortTermObjectIdToObjectDefinition[objectId] = \
-            TypeDescription.InstanceMethod(
-                instanceId=instanceId,
-                methodName=methodName
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                pyObject,
+                objectId,
+                objectDefinition
                 )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = \
+                objectDefinition
+
+    def defineInstanceMethod(self,
+                             pyObject,
+                             objectId,
+                             instanceId,
+                             methodName,
+                             isLongTerm):
+        objectDefinition = TypeDescription.InstanceMethod(
+            instanceId=instanceId,
+            methodName=methodName
+            )
+        
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                pyObject,
+                objectId,
+                objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = \
+                objectDefinition
 
     def defineWithBlock(self,
                         objectId,

@@ -94,6 +94,7 @@ class InMemoryPandasTestCases(object):
 
         for ix in range(-df.shape[0], df.shape[0]):
             for jx in range(-df.shape[1], df.shape[1]):
+                print "ix, jx = %s, %s" % (ix, jx)
                 self.equivalentEvaluationTest(
                     f, ix, jx,
                     comparisonFunction=lambda x, y: int(x) == int(y)
