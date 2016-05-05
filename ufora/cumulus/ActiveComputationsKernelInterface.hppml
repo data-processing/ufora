@@ -116,8 +116,6 @@ public:
 
 	virtual ImmutableTreeVector<ComputationEvent> extractRecentComputationEventsForId(ComputationId id) = 0;
 		
-	virtual bool hasEnoughComputeTimeElapsedToSplit(ComputationId computation, double threshold) = 0;
-
 	virtual void onCumulusComponentMessageCreated(CumulusComponentMessageCreated msg) = 0;
 
 	virtual Nullable<pair<CheckpointStatus, CheckpointRequest> > 

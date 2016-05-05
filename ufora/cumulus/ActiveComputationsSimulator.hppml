@@ -444,25 +444,6 @@ public:
 				}
 		}
 		
-	virtual bool hasEnoughComputeTimeElapsedToSplit(ComputationId computation, double threshold)
-		{
-		ActiveComputationsEvent event(readEvent());
-
-		@match ActiveComputationsEvent(event)
-			-| Internal_HasEnoughTimeElapsedToSplit(msgComp, msgThresh, result) ->> {
-				lassert(computation == msgComp);
-				lassert(msgThresh == threshold);
-				return result;
-				}
-			-| _ ->> {
-				lassert_dump(false,
-					"Expected Internal_HasEnoughTimeElapsedToSplit(" 
-						<< prettyPrintString(computation) << ", " << threshold << ")" 
-						<< "\nbut got\n" << prettyPrintString(event)
-						);
-				}
-		}
-		
 	virtual void resetInterruptStateForId(ComputationId computation)
 		{
 		assertReadsEvent(
@@ -913,9 +894,6 @@ private:
 					}
 			-|	WriteToCheckpointCompleted(computation, status, request) ->> {
 					mKernel->handleWriteCheckpointCompleted(computation, status, request);
-					}
-			-| 	BackgroundSearchForFuturePagesCompleted(computation, guid, machine, pages) ->> {
-					mKernel->searchForFuturePageReadsCompleted(computation, guid, machine, pages);
 					}
 			-|	StartComputing(computation) ->> {
 					mKernel->startComputation(computation);

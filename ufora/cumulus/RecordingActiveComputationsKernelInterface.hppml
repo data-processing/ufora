@@ -495,18 +495,6 @@ public:
 		return result;
 		}
 
-	bool hasEnoughComputeTimeElapsedToSplit(ComputationId computation, double threshold)
-		{
-		bool result = mComputationStatesById[computation]->hasEnoughComputeTimeElapsedToSplit(threshold);
-
-		if (mEventHandler)
-			mEventHandler(
-				ActiveComputationsEvent::Internal_HasEnoughTimeElapsedToSplit(computation, threshold, result)
-				);
-
-		return result;
-		}
-
 	void resetInterruptStateForId(ComputationId computation)
 		{
 		if (mEventHandler)

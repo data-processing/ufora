@@ -690,23 +690,6 @@ void ActiveComputationsKernel::handleSchedulerToComputationMessage(const Schedul
 		return;
 		}
 
-	@match SchedulerToComputationMessage(message)
-		-| Split(threshold) ->> {
-			if (!mExternalInterface->hasEnoughComputeTimeElapsedToSplit(computation, threshold))
-				{
-				sendComputationToSchedulerMessage(
-					ComputationToSchedulerMessage::OK(
-						computation,
-						message.guid(),
-						message.schedulerMachine()
-						)
-					);
-				return;
-				}
-			}
-		-| _ ->> {}
-		;
-
 	if (isCurrentlyComputing(computation))
 		{
 		mExternalInterface->interruptComputation(computation);
@@ -742,16 +725,6 @@ void ActiveComputationsKernel::handleSchedulerToComputationMessage(const Schedul
 					);
 			}
 		-| ResetPageDataAndBroadcast() ->> {
-			mComputationsCurrentlyHandlingBackgroundActions.insert(computation);
-
-			mExternalInterface->notifyThreadsWaitingForSplits();
-
-			mExternalInterface->scheduleComputationToHandleBackgroundAction(
-				computation,
-				ComputationBackgroundAction::HandleSchedulerMessage(message)
-				);
-			}
-		-| SearchForFuturePageReads() ->> {
 			mComputationsCurrentlyHandlingBackgroundActions.insert(computation);
 
 			mExternalInterface->notifyThreadsWaitingForSplits();
@@ -2771,31 +2744,6 @@ bool ActiveComputationsKernel::startComputation(ComputationId computation)
 	cleanupAfterStateChange();
 
 	return true;
-	}
-
-void ActiveComputationsKernel::searchForFuturePageReadsCompleted(
-										ComputationId computation,
-										hash_type guid,
-										MachineId schedulerMachine,
-										ImmutableTreeVector<Fora::PageId> newPages
-										)
-	{
-	mComputationsCurrentlyHandlingBackgroundActions.erase(computation);
-
-	sendComputationToSchedulerMessage(
-		ComputationToSchedulerMessage::FuturePageReads(
-			computation,
-			guid,
-			schedulerMachine,
-			newPages
-			)
-		);
-	
-	fireOffPendingActions(computation);
-
-	mExternalInterface->notifyThreadsWaitingForSplits();
-	
-	cleanupAfterStateChange();
 	}
 
 void ActiveComputationsKernel::resetPageDataAndBroadcastCompleted(

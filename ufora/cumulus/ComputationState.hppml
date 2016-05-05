@@ -138,8 +138,6 @@ public:
 
 	PolymorphicSharedPtr<SerializedObject> getSerializedResult();
 
-	ImmutableTreeVector<Fora::PageId> continueToSearchForFuturePages(double maxTimeElapsed);
-
 	CreatedComputations tryToSplit(hash_type splitGuid);
 
 	bool isTemporary() const;
@@ -165,12 +163,6 @@ public:
 	void resetStateForAddDrop();
 
 	bool canExtractPausedComputation() const;
-
-	//this function may be called while another thread is computing
-	bool hasEnoughComputeTimeElapsedToSplit(double inThreshold);
-
-	//this function may be called while another thread is computing
-	void markSplitAttempt(void);
 
 	ImmutableTreeVector<ImplValContainer> extractCurrentLogs();
 

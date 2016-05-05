@@ -273,13 +273,6 @@ public:
 
 	bool startComputation(ComputationId computation);
 
-	void searchForFuturePageReadsCompleted(
-				ComputationId computation, 
-				hash_type guid, 
-				MachineId schedulerMachine,
-				ImmutableTreeVector<Fora::PageId> pageReads
-				);
-
 	void handleWriteCheckpointCompleted(
 				ComputationId computation, 
 				CheckpointStatus status,
