@@ -138,19 +138,29 @@ class ObjectRegistry(object):
                                        objectId,
                                        builtinExceptionInstance,
                                        typename,
-                                       argsId):
-        self.longTermObjectRegistryIncrement.pushIncrementEntry(
-            builtinExceptionInstance,
-            objectId,
-            TypeDescription.BuiltinExceptionInstance(typename, argsId)
-            )
+                                       argsId,
+                                       isLongTerm):
+        objectDefinition = TypeDescription.BuiltinExceptionInstance(typename, argsId)
 
-    def defineNamedSingleton(self, objectId, singletonName, pyObject):
-        self.longTermObjectRegistryIncrement.pushIncrementEntry(
-            pyObject,
-            objectId,
-            TypeDescription.NamedSingleton(singletonName)
-            )
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                builtinExceptionInstance,
+                objectId,
+                objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = objectDefinition
+
+    def defineNamedSingleton(self, objectId, singletonName, pyObject, isLongTerm):
+        objectDefinition = TypeDescription.NamedSingleton(singletonName)
+        if isLongTerm:
+            self.longTermObjectRegistryIncrement.pushIncrementEntry(
+                pyObject,
+                objectId,
+                objectDefinition
+                )
+        else:
+            self.shortTermObjectIdToObjectDefinition[objectId] = objectDefinition
 
     def defineFunction(self,
                        function,

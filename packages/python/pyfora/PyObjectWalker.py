@@ -51,6 +51,10 @@ class UnresolvedFreeVariableExceptionWithTrace(Exception):
         self.trace.insert(0, elmt)
 
 
+class UnwalkableError(Exception):
+    pass
+
+
 def _convertUnresolvedFreeVariableExceptionAndRaise(e, sourceFileName):
     logging.error(
         "Converter raised an UnresolvedFreeVariableException exception: %s",
@@ -155,6 +159,8 @@ class PyObjectWalker(object):
             An `int`, the `objectId` of the root python object.
         """
 
+        print "walkPyObject ", type(pyObject), pyObject, "isLongTerm = ", isLongTerm
+
         originalPyObject = pyObject
 
         objectIdOrNone = self._objectRegistry.longTermObjectId(pyObject)
@@ -179,9 +185,6 @@ class PyObjectWalker(object):
 
         objectId = self._allocateId(pyObject)
 
-        print "%s -> %s (id=%s, id(walking)=%s)" % (objectId, originalPyObject, id(originalPyObject), id(pyObject))
-        print "\t%s" % self._pyObjectIdToObjectId
-
         if pyObject is pyfora.connect:
             self._registerUnconvertible(objectId)
             return objectId
@@ -192,6 +195,16 @@ class PyObjectWalker(object):
             self._registerUnconvertible(objectId)
         except PyforaInspectError:
             self._registerUnconvertible(objectId)
+        except UnwalkableError:
+            self._registerUnconvertible(objectId)
+
+        print "%s -> %s (isLongTerm=%s). \nobjectDefinition = %s\n" % (
+            objectId,
+            originalPyObject,
+            isLongTerm,
+            self._objectRegistry.getDefinition(objectId))
+
+
 
         return objectId
 
@@ -203,13 +216,14 @@ class PyObjectWalker(object):
             self._walkPyObject(pyObject.result(), objectId, isLongTerm=isLongTerm)
         elif isinstance(pyObject, Exception) and pyObject.__class__ in \
            NamedSingletons.pythonSingletonToName:
-            self._registerBuiltinExceptionInstance(objectId, pyObject)
+            self._registerBuiltinExceptionInstance(objectId, pyObject, isLongTerm=isLongTerm)
         elif isinstance(pyObject, (type, builtin_function_or_method)) and \
            pyObject in NamedSingletons.pythonSingletonToName:
             self._registerNamedSingleton(
                 objectId,
                 NamedSingletons.pythonSingletonToName[pyObject],
-                pyObject
+                pyObject,
+                isLongTerm=isLongTerm
                 )
         elif isinstance(pyObject, PyforaWithBlock.PyforaWithBlock):
             assert not isLongTerm, "withBlocks shouldn't be long term"
@@ -223,8 +237,10 @@ class PyObjectWalker(object):
                 "lists cannot be long term objects, as they are unhashable"
             self._registerList(objectId, pyObject)
         elif isinstance(pyObject, dict):
-            assert not isLongTerm, \
-                "dicts cannot be long term objects, as they are unhashable"
+            if isLongTerm:
+                raise UnwalkableError(
+                    "dicts cannot be long term objects, as they are unhashable"
+                     )
             self._registerDict(objectId, pyObject)
         elif isPrimitive(pyObject):
             self._registerPrimitive(objectId, pyObject, isLongTerm=isLongTerm)
@@ -278,10 +294,17 @@ class PyObjectWalker(object):
                 return False
             module = sys.modules[moduleName]
 
-            return len(PyforaInspect.getmembers(
+            tr = len(PyforaInspect.getmembers(
                 module,
                 lambda _: PyforaInspect.isclass(_) and _.__name__ == cls.__name__
                 )) > 0
+
+            if tr:
+                print "class %s is long term!!" % cls
+            else:
+                print "class %s is not long term :(" % cls
+
+            return tr
 
     def _registerRemotePythonObject(self, objectId, remotePythonObject, isLongTerm):
         """
@@ -294,7 +317,7 @@ class PyObjectWalker(object):
             isLongTerm=isLongTerm
             )
 
-    def _registerBuiltinExceptionInstance(self, objectId, builtinExceptionInstance):
+    def _registerBuiltinExceptionInstance(self, objectId, builtinExceptionInstance, isLongTerm):
         """
         `_registerBuiltinExceptionInstance`: register a `builtinExceptionInstance`
         with `self.objectRegistry`.
@@ -309,15 +332,16 @@ class PyObjectWalker(object):
             NamedSingletons.pythonSingletonToName[
                 builtinExceptionInstance.__class__
                 ],
-            argsId
+            argsId,
+            isLongTerm=isLongTerm
             )
 
-    def _registerNamedSingleton(self, objectId, singletonName, pyObject):
+    def _registerNamedSingleton(self, objectId, singletonName, pyObject, isLongTerm):
         """
         `_registerNamedSingleton`: register a `NamedSingleton`
         (a terminal node in a python object graph) with `self.objectRegistry`
         """
-        self._objectRegistry.defineNamedSingleton(objectId, singletonName, pyObject)
+        self._objectRegistry.defineNamedSingleton(objectId, singletonName, pyObject, isLongTerm)
 
     def _registerTuple(self, objectId, tuple_, isLongTerm):
         """
